@@ -291,7 +291,7 @@ vmware_inventory/
 
 ```bash
 # 1. Clonar
-git clone https://github.com/tu-usuario/vmware-inventory-system.git
+git clone https://github.com/tu-usuario/vmware-inventory-system.git](https://github.com/OmarAyala-S3/VMware_Inventory.git
 cd vmware-inventory-system/vmware_inventory
 
 # 2. Entorno virtual
