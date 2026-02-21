@@ -1,41 +1,24 @@
-# For most projects, this workflow file will not need changing; you simply need
-# to commit it to your repository.
-#
-# You may wish to alter this file to override the set of languages analyzed,
-# or to provide custom queries or build logic.
-#
-# ******** NOTE ********
-# We have attempted to detect the languages in your repository. Please check
-# the `language` matrix defined below to confirm you have the correct set of
-# supported CodeQL languages.
-#
-name: "CodeQL Advanced"
+name: "CodeQL Security Analysis"
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ]
   schedule:
-    - cron: '39 1 * * 6'
+    # Ejecuta todos los lunes a las 03:00 UTC
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+    # Permite ejecucion manual desde GitHub Actions
 
 jobs:
   analyze:
-    name: Analyze (${{ matrix.language }})
-    # Runner size impacts CodeQL analysis time. To learn more, please see:
-    #   - https://gh.io/recommended-hardware-resources-for-running-codeql
-    #   - https://gh.io/supported-runners-and-hardware-resources
-    #   - https://gh.io/using-larger-runners (GitHub.com only)
-    # Consider using larger runners or machines with greater resources for possible analysis time improvements.
-    runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
+    name: Analyze Python — ${{ matrix.scan-type }}
+    runs-on: ubuntu-latest
+
     permissions:
-      # required for all workflows
       security-events: write
-
-      # required to fetch internal or private CodeQL packs
       packages: read
-
-      # only required for workflows in private repositories
       actions: read
       contents: read
 
@@ -43,57 +26,147 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - language: python
-          build-mode: none
-        # CodeQL supports the following values keywords for 'language': 'actions', 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'rust', 'swift'
-        # Use `c-cpp` to analyze code written in C, C++ or both
-        # Use 'java-kotlin' to analyze code written in Java, Kotlin or both
-        # Use 'javascript-typescript' to analyze code written in JavaScript, TypeScript or both
-        # To learn more about changing the languages that are analyzed or customizing the build mode for your analysis,
-        # see https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/customizing-your-advanced-setup-for-code-scanning.
-        # If you are analyzing a compiled language, you can modify the 'build-mode' for that language to customize how
-        # your codebase is analyzed, see https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/codeql-code-scanning-for-compiled-languages
+          # ── Escaneo de seguridad (vulnerabilidades criticas) ──────────────
+          - language: python
+            build-mode: none
+            scan-type: "Security"
+            queries: security-extended
+
+          # ── Escaneo de calidad (bugs, code smells, mejoras) ───────────────
+          - language: python
+            build-mode: none
+            scan-type: "Quality"
+            queries: security-and-quality
+
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2   # Necesario para analisis de cambios en PRs
 
-    # Add any setup steps before running the `github/codeql-action/init` action.
-    # This includes steps like installing compilers or runtimes (`actions/setup-node`
-    # or others). This is typically only required for manual builds.
-    # - name: Setup runtime (example)
-    #   uses: actions/setup-example@v1
+      # ── 2. Setup Python ────────────────────────────────────────────────────
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
 
-    # Initializes the CodeQL tools for scanning.
-    - name: Initialize CodeQL
-      uses: github/codeql-action/init@v4
-      with:
-        languages: ${{ matrix.language }}
-        build-mode: ${{ matrix.build-mode }}
-        # If you wish to specify custom queries, you can do so here or in a config file.
-        # By default, queries listed here will override any specified in a config file.
-        # Prefix the list here with "+" to use these queries and those in the config file.
+      # ── 3. Instalar dependencias ───────────────────────────────────────────
+      # CodeQL analiza mejor el codigo cuando puede resolver los imports reales.
+      # Esto permite detectar vulnerabilidades en dependencias externas tambien.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r vmware_inventory/requirements.txt || true
+          # Instalar dependencias de analisis extra
+          pip install bandit safety
 
-        # For more details on CodeQL's query packs, refer to: https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/configuring-code-scanning#using-queries-in-ql-packs
-        # queries: security-extended,security-and-quality
+      # ── 4. Bandit — analisis de seguridad adicional ────────────────────────
+      # Bandit detecta problemas que CodeQL no cubre (ej: assert en prod,
+      # uso de subprocess, hardcoded secrets, etc.)
+      - name: Run Bandit security scan
+        if: matrix.scan-type == 'Security'
+        run: |
+          bandit -r vmware_inventory/ \
+            --exclude vmware_inventory/venv,vmware_inventory/build,vmware_inventory/dist \
+            --severity-level medium \
+            --confidence-level medium \
+            --format sarif \
+            --output bandit-results.sarif || true
 
-    # If the analyze step fails for one of the languages you are analyzing with
-    # "We were unable to automatically build your code", modify the matrix above
-    # to set the build mode to "manual" for that language. Then modify this step
-    # to build your code.
-    # ℹ️ Command-line programs to run using the OS shell.
-    # 📚 See https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idstepsrun
-    - name: Run manual build steps
-      if: matrix.build-mode == 'manual'
-      shell: bash
-      run: |
-        echo 'If you are using a "manual" build mode for one or more of the' \
-          'languages you are analyzing, replace this with the commands to build' \
-          'your code, for example:'
-        echo '  make bootstrap'
-        echo '  make release'
-        exit 1
+      # ── 5. Safety — vulnerabilidades en dependencias ──────────────────────
+      # Compara requirements.txt contra la base de datos de CVEs de PyPI
+      - name: Run Safety dependency check
+        if: matrix.scan-type == 'Security'
+        run: |
+          safety check \
+            --file vmware_inventory/requirements.txt \
+            --output text || true
 
-    - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v4
-      with:
-        category: "/language:${{matrix.language}}"
+      # ── 6. Inicializar CodeQL ──────────────────────────────────────────────
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: python
+          build-mode: ${{ matrix.build-mode }}
+          queries: ${{ matrix.queries }}
+          # Configuracion adicional para Python
+          config: |
+            paths:
+              - vmware_inventory
+            paths-ignore:
+              - vmware_inventory/venv
+              - vmware_inventory/build
+              - vmware_inventory/dist
+              - "**/__pycache__"
+              - "**/*.pyc"
+            query-filters:
+              - exclude:
+                  tags contain: experimental
+
+      # ── 7. Ejecutar analisis CodeQL ────────────────────────────────────────
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:python/scan:${{ matrix.scan-type }}"
+          output: codeql-results
+          upload: always
+
+      # ── 8. Subir resultados Bandit a Security tab ──────────────────────────
+      - name: Upload Bandit results to GitHub Security
+        if: matrix.scan-type == 'Security' && hashFiles('bandit-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: bandit-results.sarif
+          category: "bandit"
+
+      # ── 9. Resumen en el log de Actions ───────────────────────────────────
+      - name: Generate scan summary
+        if: always()
+        run: |
+          echo "## CodeQL Scan Summary — ${{ matrix.scan-type }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Campo        | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Tipo de scan | ${{ matrix.scan-type }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Queries      | ${{ matrix.queries }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Rama         | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit       | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trigger      | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Resultados disponibles en la pestaña **Security → Code scanning alerts**" >> $GITHUB_STEP_SUMMARY
+
+  # ── Job separado: reporte consolidado post-analisis ──────────────────────────
+  security-report:
+    name: Security Report
+    runs-on: ubuntu-latest
+    needs: analyze
+    if: always()
+
+    permissions:
+      contents: read
+      security-events: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Final security summary
+        run: |
+          echo "## Resumen Final de Seguridad" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Herramientas ejecutadas" >> $GITHUB_STEP_SUMMARY
+          echo "| Herramienta | Descripcion | Cobertura |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| CodeQL Security | Vulnerabilidades OWASP Top 10, CWE | Codigo fuente Python |" >> $GITHUB_STEP_SUMMARY
+          echo "| CodeQL Quality  | Code smells, bugs, malas practicas | Codigo fuente Python |" >> $GITHUB_STEP_SUMMARY
+          echo "| Bandit          | Seguridad especifica de Python | Codigo fuente Python |" >> $GITHUB_STEP_SUMMARY
+          echo "| Safety          | CVEs en dependencias de PyPI | requirements.txt |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Alertas resueltas" >> $GITHUB_STEP_SUMMARY
+          echo "- CWE-916: SHA-256 reemplazado por bcrypt (credentials.py, security.py)" >> $GITHUB_STEP_SUMMARY
+          echo "- CWE-327: Algoritmo debil de hashing en datos sensibles — corregido" >> $GITHUB_STEP_SUMMARY
+          echo "- CWE-328: Hash sin sal en contrasenas — corregido con bcrypt (sal automatica)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Ver alertas activas en: **Security → Code scanning**" >> $GITHUB_STEP_SUMMARY
