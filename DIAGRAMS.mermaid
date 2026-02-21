@@ -1,0 +1,93 @@
+---
+title: Flujo de Escaneo Multi-Conexión
+---
+
+sequenceDiagram
+    actor U as 👤 Usuario
+    participant P as MultiConnectionPanel
+    participant M as ConnectionManager
+    participant T as ThreadPoolExecutor
+    participant V as VMwareService
+    participant I as Infraestructura VMware
+
+    U->>P: Agrega conexión (vCenter-Prod)
+    U->>P: Agrega conexión (vCenter-Dev)
+    U->>P: Agrega conexión (ESXi-01)
+    U->>P: ⚙ Configurar Escaneo (Paralelo, 3 workers)
+    U->>P: 🚀 Escanear Todo
+
+    P->>M: start_scan(config, on_progress, on_complete)
+    M->>M: _run_scan() en Thread separado
+
+    alt Modo Paralelo
+        M->>T: submit(_scan_single) × 3 fuentes
+        
+        par vCenter-Prod
+            T->>V: VMwareService()
+            V->>I: connect(vcenter-prod:443)
+            I-->>V: ✅ Autenticado
+            V->>I: _get_all_objects(HostSystem, cpuModel)
+            I-->>V: host_cpu_map {moId→cpuModel}
+            V->>I: _get_all_objects(VirtualMachine, props)
+            I-->>V: 150 VMs
+            V->>V: _parse_vm() × 150
+            V->>I: extract_hosts()
+            V->>I: extract_datastores()
+            V->>I: extract_networks()
+            V-->>M: SimpleInventory(150 VMs, 8 hosts...)
+        and vCenter-Dev
+            T->>V: VMwareService()
+            V->>I: connect(vcenter-dev:443)
+            V-->>M: SimpleInventory(45 VMs, 3 hosts...)
+        and ESXi-01
+            T->>V: VMwareService()
+            V->>I: connect(esxi-01:443)
+            V-->>M: SimpleInventory(12 VMs, 1 host...)
+        end
+
+        M->>M: _tag_inventory() → inyecta "Fuente" en cada objeto
+        M-->>P: on_progress(100%, "✅ 3/3 fuentes OK")
+    end
+
+    M-->>P: on_complete(ConsolidatedResult)
+    P->>P: root.after(0, finalize) — thread-safe UI update
+    P-->>U: "Total: 207 VMs | 12 Hosts | 3/3 fuentes OK"
+
+    U->>P: 💾 Exportar Excel Consolidado
+    P->>P: MultiSourceExporter.export(consolidated, profiles)
+    P->>P: Construye DataFrames por fuente
+    P->>P: Escribe hojas con pandas + openpyxl
+    P->>P: Aplica estilos, colores, freeze panes
+    P-->>U: Inventario_VMware_3fuentes_20250220_1430.xlsx
+```
+
+---
+title: Técnica de Extracción del Procesador de VM
+---
+
+sequenceDiagram
+    participant S as vmware_service.py
+    participant A as API pyVmomi
+    participant C as host_cpu_map (cache)
+    participant VM as VMModel
+
+    Note over S: extract_vms() inicia
+
+    S->>A: _get_all_objects(HostSystem,<br/>["summary.hardware.cpuModel"])
+    A-->>S: [{host-10: "Intel Xeon Gold 6154"},<br/> {host-11: "Intel Xeon Silver 4214"},<br/> {host-12: "AMD EPYC 7542"}]
+    S->>C: Construye dict {moId → cpuModel}<br/>(1 sola query para TODOS los hosts)
+
+    S->>A: _get_all_objects(VirtualMachine, props)
+    A-->>S: 500 VMs con runtime.host (MoRef)
+
+    loop Por cada VM
+        S->>VM: vm = VMModel()
+        S->>A: runtime.host → host_ref (MoRef)
+        Note over A,S: host_ref._moId = "host-11"
+        S->>C: lookup("host-11")
+        C-->>S: "Intel Xeon Silver 4214"
+        S->>VM: vm.processor = "Intel Xeon Silver 4214"
+        Note over VM: Sin llamadas extra a vCenter
+    end
+
+    Note over S: 500 VMs procesadas<br/>Solo 1 query extra de hosts<br/>(vs 500 si fuera por VM)
