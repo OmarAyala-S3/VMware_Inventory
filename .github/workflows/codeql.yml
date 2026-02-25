@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [ "main", "develop" ]
   schedule:
-    # Ejecuta todos los lunes a las 03:00 UTC
     - cron: '0 3 * * 1'
   workflow_dispatch:
 
@@ -25,76 +24,48 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ── Escaneo de seguridad (vulnerabilidades criticas) ──────────────
           - scan-type: "Security"
             queries: security-extended
-
-          # ── Escaneo de calidad (bugs, code smells, mejoras) ───────────────
           - scan-type: "Quality"
             queries: security-and-quality
 
     steps:
-      # ── 1. Checkout ────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 2
 
-      # ── 2. Setup Python ────────────────────────────────────────────────────
       - name: Setup Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
 
-      # ── 3. Detectar ruta del proyecto y requirements ───────────────────────
-      # Busca requirements.txt en cualquier subcarpeta del repo para que el
-      # workflow funcione sin importar como este organizado el repositorio.
       - name: Detect project structure
         id: detect
         run: |
           REQ=$(find . -name "requirements.txt" \
-                  -not -path "*/venv/*" \
-                  -not -path "*/.git/*" \
-                  -not -path "*/dist/*" \
-                  -not -path "*/build/*" \
+                  -not -path "*/venv/*" -not -path "*/.git/*" \
+                  -not -path "*/dist/*" -not -path "*/build/*" \
                   | head -1)
-
           if [ -n "$REQ" ]; then
             echo "requirements=$REQ" >> $GITHUB_OUTPUT
             echo "found_req=true"    >> $GITHUB_OUTPUT
-            echo "Encontrado: $REQ"
           else
             echo "found_req=false"   >> $GITHUB_OUTPUT
-            echo "No se encontro requirements.txt — continuando sin instalar dependencias"
           fi
 
-          # Listar estructura del repo para debugging
-          echo "--- Estructura del repositorio ---"
-          find . -maxdepth 3 \
-            -not -path "*/.git/*" \
-            -not -path "*/venv/*" \
-            -not -path "*/__pycache__/*" \
-            | sort
-
-      # ── 4. Instalar dependencias ───────────────────────────────────────────
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-
-          # Instalar dependencias del proyecto si se encontro requirements.txt
           if [ "${{ steps.detect.outputs.found_req }}" = "true" ]; then
             pip install -r "${{ steps.detect.outputs.requirements }}" || true
           fi
-
-          # Herramientas de analisis extra
           pip install bandit safety
 
-      # ── 5. Bandit — analisis de seguridad especifico de Python ────────────
       - name: Run Bandit security scan
         if: matrix.scan-type == 'Security'
         run: |
-          # Excluir venv, dist, build y archivos generados
           bandit -r . \
             --exclude ./.git,./venv,./.venv,./dist,./build \
             --severity-level medium \
@@ -102,9 +73,6 @@ jobs:
             --format sarif \
             --output bandit-results.sarif || true
 
-          echo "Bandit completado."
-
-      # ── 6. Safety — CVEs en dependencias de PyPI ──────────────────────────
       - name: Run Safety dependency check
         if: matrix.scan-type == 'Security'
         run: |
@@ -112,22 +80,14 @@ jobs:
             safety check \
               --file "${{ steps.detect.outputs.requirements }}" \
               --output text || true
-          else
-            echo "Sin requirements.txt — omitiendo Safety"
           fi
 
-      # ── 7. Inicializar CodeQL ──────────────────────────────────────────────
-      # IMPORTANTE: build-mode: none se define aqui directamente (no en matrix)
-      # para evitar que el bloque config reactive el autobuild en CodeQL v4.
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: python
           build-mode: none
           queries: ${{ matrix.queries }}
-          # paths-ignore en config evita falsos positivos de venv y archivos generados.
-          # NO se usa "paths:" aqui porque causaba el FileNotFoundError al buscar
-          # la carpeta como punto de entrada del autobuild (linea 1256 del log).
           config: |
             paths-ignore:
               - "**/venv/**"
@@ -136,19 +96,16 @@ jobs:
               - "**/build/**"
               - "**/__pycache__/**"
               - "**/*.pyc"
-              - "**/*.pyo"
             query-filters:
               - exclude:
                   tags contain: experimental
 
-      # ── 8. Ejecutar analisis CodeQL ────────────────────────────────────────
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:python/scan:${{ matrix.scan-type }}"
           upload: always
 
-      # ── 9. Subir resultados Bandit a pestaña Security ─────────────────────
       - name: Upload Bandit results to GitHub Security
         if: matrix.scan-type == 'Security' && hashFiles('bandit-results.sarif') != ''
         uses: github/codeql-action/upload-sarif@v4
@@ -156,12 +113,10 @@ jobs:
           sarif_file: bandit-results.sarif
           category: "bandit"
 
-      # ── 10. Resumen del job en GitHub Actions ─────────────────────────────
       - name: Generate scan summary
         if: always()
         run: |
           echo "## CodeQL Scan Summary — ${{ matrix.scan-type }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Campo    | Valor |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
           echo "| Tipo de scan | ${{ matrix.scan-type }} |" >> $GITHUB_STEP_SUMMARY
@@ -169,12 +124,11 @@ jobs:
           echo "| Rama     | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit   | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Trigger  | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
           echo "Resultados en **Security → Code scanning alerts**" >> $GITHUB_STEP_SUMMARY
 
-  # ── Reporte consolidado post-analisis ─────────────────────────────────────
+  # ── Reporte HTML consolidado descargable ──────────────────────────────────
   security-report:
-    name: Security Report
+    name: Security Report (HTML + CSV)
     runs-on: ubuntu-latest
     needs: analyze
     if: always()
@@ -187,21 +141,287 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Final security summary
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install report dependencies
+        run: pip install requests
+
+      # Descarga todas las alertas via GitHub API y genera reporte HTML + CSV
+      - name: Download alerts and generate report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO:     ${{ github.repository }}
+          SHA:      ${{ github.sha }}
+          RUN_ID:   ${{ github.run_id }}
+          BRANCH:   ${{ github.ref_name }}
         run: |
-          echo "## Resumen Final de Seguridad" >> $GITHUB_STEP_SUMMARY
+          python3 << 'PYEOF'
+          import os, json, csv, datetime, urllib.request, urllib.error
+
+          token  = os.environ["GH_TOKEN"]
+          repo   = os.environ["REPO"]
+          sha    = os.environ["SHA"]
+          run_id = os.environ["RUN_ID"]
+          branch = os.environ["BRANCH"]
+          now    = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+
+          def gh_get(url):
+              req = urllib.request.Request(url, headers=headers)
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      return json.loads(r.read())
+              except urllib.error.HTTPError as e:
+                  print(f"HTTP {e.code} en {url}")
+                  return []
+
+          # Paginar todas las alertas de code scanning
+          alerts = []
+          page = 1
+          while True:
+              url = f"https://api.github.com/repos/{repo}/code-scanning/alerts?per_page=100&page={page}&ref={branch}"
+              batch = gh_get(url)
+              if not batch:
+                  break
+              alerts.extend(batch)
+              if len(batch) < 100:
+                  break
+              page += 1
+
+          print(f"Total alertas descargadas: {len(alerts)}")
+
+          # ── Procesar alertas ────────────────────────────────────────────────
+          open_alerts   = [a for a in alerts if a.get("state") == "open"]
+          closed_alerts = [a for a in alerts if a.get("state") == "dismissed" or a.get("state") == "fixed"]
+
+          severity_order = {"critical":0,"high":1,"medium":2,"low":3,"warning":4,"note":5,"none":6}
+          open_alerts.sort(key=lambda a: severity_order.get(
+              a.get("rule",{}).get("severity","none"), 6))
+
+          # Conteo por severidad
+          sev_count = {}
+          for a in open_alerts:
+              s = a.get("rule",{}).get("severity","note")
+              sev_count[s] = sev_count.get(s,0) + 1
+
+          # Conteo por archivo
+          file_count = {}
+          for a in open_alerts:
+              loc = a.get("most_recent_instance",{}).get("location",{})
+              f = loc.get("path","desconocido")
+              file_count[f] = file_count.get(f,0) + 1
+
+          # ── Generar CSV ─────────────────────────────────────────────────────
+          with open("security_report.csv","w",newline="",encoding="utf-8") as fcsv:
+              w = csv.writer(fcsv)
+              w.writerow(["#","Estado","Severidad","Regla","Descripcion","Archivo","Linea","Tool","URL"])
+              for i, a in enumerate(alerts, 1):
+                  loc  = a.get("most_recent_instance",{}).get("location",{})
+                  rule = a.get("rule",{})
+                  w.writerow([
+                      i,
+                      a.get("state",""),
+                      rule.get("severity",""),
+                      rule.get("id",""),
+                      rule.get("description","")[:120],
+                      loc.get("path",""),
+                      loc.get("start_line",""),
+                      a.get("tool",{}).get("name",""),
+                      a.get("html_url",""),
+                  ])
+
+          # ── Helpers HTML ────────────────────────────────────────────────────
+          SEV_COLOR = {
+              "critical":"#dc3545","high":"#fd7e14","medium":"#ffc107",
+              "low":"#0dcaf0","warning":"#6f42c1","note":"#6c757d","none":"#adb5bd",
+          }
+          SEV_BADGE = {
+              "critical":"danger","high":"warning","medium":"warning",
+              "low":"info","warning":"secondary","note":"secondary","none":"light",
+          }
+
+          def badge(text, color="#6c757d"):
+              return f'<span style="background:{color};color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600">{text.upper()}</span>'
+
+          def sev_badge(s):
+              return badge(s, SEV_COLOR.get(s,"#6c757d"))
+
+          def state_badge(s):
+              c = "#198754" if s=="open" else "#6c757d"
+              return badge(s, c)
+
+          # ── Generar HTML ────────────────────────────────────────────────────
+          sev_bars = ""
+          total_open = len(open_alerts)
+          for s in ["critical","high","medium","low","warning","note"]:
+              cnt = sev_count.get(s,0)
+              if cnt == 0:
+                  continue
+              pct = int(cnt/max(total_open,1)*100)
+              sev_bars += f"""
+                <div style="margin-bottom:8px">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+                    <span>{sev_badge(s)}</span>
+                    <span style="font-weight:700;color:{SEV_COLOR.get(s,'#333')}">{cnt}</span>
+                  </div>
+                  <div style="background:#2a2a3e;border-radius:4px;height:8px">
+                    <div style="background:{SEV_COLOR.get(s,'#666')};width:{pct}%;height:8px;border-radius:4px"></div>
+                  </div>
+                </div>"""
+
+          file_rows = ""
+          for f,c in sorted(file_count.items(), key=lambda x:-x[1])[:10]:
+              file_rows += f"<tr><td style='color:#90caf9;font-family:monospace;font-size:12px'>{f}</td><td style='text-align:center;font-weight:700'>{c}</td></tr>"
+
+          alert_rows = ""
+          for i, a in enumerate(open_alerts, 1):
+              loc  = a.get("most_recent_instance",{}).get("location",{})
+              rule = a.get("rule",{})
+              sev  = rule.get("severity","note")
+              path = loc.get("path","")
+              line = loc.get("start_line","")
+              url  = a.get("html_url","#")
+              desc = rule.get("description","")[:100]
+              tool = a.get("tool",{}).get("name","CodeQL")
+              alert_rows += f"""
+              <tr>
+                <td style='color:#aaa;text-align:center'>{i}</td>
+                <td>{sev_badge(sev)}</td>
+                <td style='font-family:monospace;font-size:12px;color:#90caf9'>{rule.get("id","")}</td>
+                <td style='font-size:12px'>{desc}</td>
+                <td style='font-family:monospace;font-size:11px;color:#ce93d8'>{path}</td>
+                <td style='text-align:center;color:#aaa'>{line}</td>
+                <td style='font-size:11px;color:#aaa'>{tool}</td>
+                <td style='text-align:center'><a href='{url}' target='_blank' style='color:#64b5f6;font-size:11px'>Ver</a></td>
+              </tr>"""
+
+          html = f"""<!DOCTYPE html>
+          <html lang="es">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>Security Report — {repo}</title>
+            <style>
+              * {{ box-sizing:border-box;margin:0;padding:0 }}
+              body {{ font-family:'Segoe UI',system-ui,sans-serif;background:#0d1117;color:#e6edf3;padding:24px }}
+              h1 {{ font-size:22px;font-weight:700;margin-bottom:4px }}
+              h2 {{ font-size:15px;font-weight:600;margin-bottom:12px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px }}
+              .meta {{ color:#8b949e;font-size:13px;margin-bottom:24px }}
+              .meta b {{ color:#e6edf3 }}
+              .grid {{ display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:24px }}
+              .card {{ background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px }}
+              .stat {{ font-size:36px;font-weight:700;margin-bottom:4px }}
+              .stat.red {{ color:#f85149 }} .stat.green {{ color:#3fb950 }} .stat.gray {{ color:#8b949e }}
+              table {{ width:100%;border-collapse:collapse;font-size:13px }}
+              th {{ background:#161b22;color:#8b949e;padding:10px 12px;text-align:left;
+                    border-bottom:1px solid #30363d;font-weight:600;font-size:11px;text-transform:uppercase }}
+              td {{ padding:9px 12px;border-bottom:1px solid #21262d;vertical-align:middle }}
+              tr:hover td {{ background:#161b22 }}
+              .table-wrap {{ background:#0d1117;border:1px solid #30363d;border-radius:10px;overflow:hidden;margin-bottom:24px }}
+              .footer {{ color:#8b949e;font-size:12px;text-align:center;margin-top:24px;padding-top:16px;border-top:1px solid #21262d }}
+            </style>
+          </head>
+          <body>
+            <h1>🔐 Security Scan Report</h1>
+            <p class="meta">
+              Repositorio: <b>{repo}</b> &nbsp;|&nbsp;
+              Rama: <b>{branch}</b> &nbsp;|&nbsp;
+              Commit: <b style="font-family:monospace">{sha[:8]}</b> &nbsp;|&nbsp;
+              Generado: <b>{now}</b> &nbsp;|&nbsp;
+              Run: <a href="https://github.com/{repo}/actions/runs/{run_id}" style="color:#58a6ff">#{run_id}</a>
+            </p>
+
+            <div class="grid">
+              <div class="card">
+                <div class="stat red">{len(open_alerts)}</div>
+                <div>Alertas abiertas</div>
+              </div>
+              <div class="card">
+                <div class="stat green">{len(closed_alerts)}</div>
+                <div>Alertas cerradas / resueltas</div>
+              </div>
+              <div class="card">
+                <div class="stat gray">{len(alerts)}</div>
+                <div>Total historico</div>
+              </div>
+            </div>
+
+            <div class="grid" style="grid-template-columns:1fr 1fr">
+              <div class="card">
+                <h2>Por Severidad</h2>
+                {sev_bars}
+              </div>
+              <div class="card">
+                <h2>Top archivos con alertas</h2>
+                <table>
+                  <thead><tr><th>Archivo</th><th>Alertas</th></tr></thead>
+                  <tbody>{file_rows}</tbody>
+                </table>
+              </div>
+            </div>
+
+            <h2 style="margin-bottom:12px">Detalle de Alertas Abiertas ({len(open_alerts)})</h2>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th><th>Severidad</th><th>Regla</th><th>Descripcion</th>
+                    <th>Archivo</th><th>Linea</th><th>Tool</th><th>Link</th>
+                  </tr>
+                </thead>
+                <tbody>{alert_rows}</tbody>
+              </table>
+            </div>
+
+            <div class="footer">
+              Generado automaticamente por GitHub Actions · VMware Inventory Security Pipeline
+            </div>
+          </body>
+          </html>"""
+
+          with open("security_report.html","w",encoding="utf-8") as f:
+              f.write(html)
+
+          print(f"Reporte HTML generado: security_report.html")
+          print(f"Reporte CSV  generado: security_report.csv")
+          PYEOF
+
+      # Sube el reporte como artifact descargable en la pestaña Actions
+      - name: Upload security report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report-${{ github.sha }}
+          path: |
+            security_report.html
+            security_report.csv
+          retention-days: 90
+
+      - name: Final security summary
+        if: always()
+        run: |
+          echo "## Reporte de Seguridad Generado" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "El reporte detallado esta disponible como **artifact** descargable." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Como descargarlo:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. Ir a Actions → este workflow run" >> $GITHUB_STEP_SUMMARY
+          echo "2. Bajar hasta la seccion **Artifacts**" >> $GITHUB_STEP_SUMMARY
+          echo "3. Descargar \`security-report-${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "4. Abrir \`security_report.html\` en el navegador" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Herramientas ejecutadas" >> $GITHUB_STEP_SUMMARY
-          echo "| Herramienta     | Descripcion                       | Cobertura          |" >> $GITHUB_STEP_SUMMARY
-          echo "|---|---|---|" >> $GITHUB_STEP_SUMMARY
-          echo "| CodeQL Security | Vulnerabilidades OWASP Top 10/CWE | Codigo fuente      |" >> $GITHUB_STEP_SUMMARY
-          echo "| CodeQL Quality  | Bugs y malas practicas            | Codigo fuente      |" >> $GITHUB_STEP_SUMMARY
-          echo "| Bandit          | Seguridad especifica de Python    | Codigo fuente      |" >> $GITHUB_STEP_SUMMARY
-          echo "| Safety          | CVEs en dependencias              | requirements.txt   |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Alertas resueltas en este proyecto" >> $GITHUB_STEP_SUMMARY
-          echo "- CWE-916: SHA-256 reemplazado por bcrypt en credentials.py y security.py" >> $GITHUB_STEP_SUMMARY
-          echo "- CWE-327: Algoritmo de hashing debil en datos sensibles — corregido" >> $GITHUB_STEP_SUMMARY
-          echo "- CWE-328: Hash de contrasena sin sal — corregido con bcrypt (sal automatica)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Ver alertas activas en: **Security → Code scanning**" >> $GITHUB_STEP_SUMMARY
+          echo "| Herramienta     | Cobertura                         |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| CodeQL Security | Vulnerabilidades OWASP Top 10/CWE |" >> $GITHUB_STEP_SUMMARY
+          echo "| CodeQL Quality  | Bugs, imports sin usar, code smells |" >> $GITHUB_STEP_SUMMARY
+          echo "| Bandit          | Seguridad especifica de Python    |" >> $GITHUB_STEP_SUMMARY
+          echo "| Safety          | CVEs en requirements.txt          |" >> $GITHUB_STEP_SUMMARY
