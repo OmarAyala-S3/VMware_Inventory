@@ -7,7 +7,7 @@ Este módulo conecta:
   - MultiSourceExporter   (exportación consolidada)
 """
 import os
-from tkinter import Tk, ttk, messagebox, filedialog, Text, Toplevel
+from tkinter import ttk, messagebox, filedialog, Text, Toplevel
 from typing import List
 
 from services.connection_manager import ConnectionManager, ConsolidatedResult
@@ -182,10 +182,14 @@ class MultiScanTab(ttk.Frame):
         self._log_cb(msg)
 
 
+# Alias para compatibilidad con app.py
+MultiTab = MultiScanTab
+
 # ─────────────────────────────────────────────────────────
 # Para prueba standalone (sin la app completa)
 # ─────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    from tkinter import Tk
     root = Tk()
     root.title("VMware Inventory — Multi-Conexión Test")
     root.geometry("1100x700")
