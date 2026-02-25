@@ -2,8 +2,7 @@
 Modelos de datos: VMModel, HostModel, DatastoreModel, NetworkModel
 """
 from dataclasses import dataclass, field
-from typing import List, Optional
-
+from typing import List
 
 @dataclass
 class NicInfo:
@@ -13,14 +12,12 @@ class NicInfo:
     ip_addresses: List[str] = field(default_factory=list)
     connected: bool = False
 
-
 @dataclass
 class DiskInfo:
     label: str = ""
     size_gb: float = 0.0
     datastore: str = ""
     thin_provisioned: bool = False
-
 
 @dataclass
 class VMModel:
@@ -88,7 +85,6 @@ class VMModel:
             "Version HW": self.hw_version,
         }
 
-
 @dataclass
 class HostModel:
     vcenter: str = ""
@@ -129,7 +125,6 @@ class HostModel:
             "Numero Serie": self.serial_number,
         }
 
-
 @dataclass
 class DatastoreModel:
     name: str = ""
@@ -152,7 +147,6 @@ class DatastoreModel:
             "Hosts Asociados": " | ".join(self.hosts),
             "Accesible": "Si" if self.accessible else "No",
         }
-
 
 @dataclass
 class NetworkModel:
