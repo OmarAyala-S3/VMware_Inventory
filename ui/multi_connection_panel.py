@@ -3,8 +3,7 @@ ui/multi_connection_panel.py
 Panel de gestión de múltiples conexiones VMware.
 Permite agregar, editar, eliminar y probar conexiones individuales.
 """
-import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, BooleanVar, DoubleVar, IntVar, StringVar, Toplevel
 import threading
 from typing import Callable, Optional, List
 
@@ -26,7 +25,7 @@ STATUS_COLORS = {
     ConnectionStatus.SKIPPED:  ("#F5F5F5", "#757575"),   # gris
 }
 
-class AddConnectionDialog(tk.Toplevel):
+class AddConnectionDialog(Toplevel):
     """Diálogo modal para agregar o editar un perfil de conexión."""
 
     def __init__(self, parent, profile: Optional[ConnectionProfile] = None):
@@ -57,7 +56,7 @@ class AddConnectionDialog(tk.Toplevel):
 
         # Tipo de conexión
         ttk.Label(frame, text="Tipo:").grid(row=0, column=0, sticky="w", **pad)
-        self._type_var = tk.StringVar(value=ConnectionType.VCENTER.value)
+        self._type_var = StringVar(value=ConnectionType.VCENTER.value)
         type_combo = ttk.Combobox(
             frame, textvariable=self._type_var,
             values=[t.value for t in ConnectionType],
@@ -67,31 +66,31 @@ class AddConnectionDialog(tk.Toplevel):
 
         # Alias
         ttk.Label(frame, text="Alias/Nombre:").grid(row=1, column=0, sticky="w", **pad)
-        self._alias_var = tk.StringVar()
+        self._alias_var = StringVar()
         ttk.Entry(frame, textvariable=self._alias_var, width=30).grid(row=1, column=1, sticky="ew", **pad)
 
         # Host
         ttk.Label(frame, text="IP / FQDN:").grid(row=2, column=0, sticky="w", **pad)
-        self._host_var = tk.StringVar()
+        self._host_var = StringVar()
         ttk.Entry(frame, textvariable=self._host_var, width=30).grid(row=2, column=1, sticky="ew", **pad)
 
         # Puerto
         ttk.Label(frame, text="Puerto:").grid(row=3, column=0, sticky="w", **pad)
-        self._port_var = tk.IntVar(value=443)
+        self._port_var = IntVar(value=443)
         ttk.Entry(frame, textvariable=self._port_var, width=10).grid(row=3, column=1, sticky="w", **pad)
 
         # Usuario
         ttk.Label(frame, text="Usuario:").grid(row=4, column=0, sticky="w", **pad)
-        self._user_var = tk.StringVar()
+        self._user_var = StringVar()
         ttk.Entry(frame, textvariable=self._user_var, width=30).grid(row=4, column=1, sticky="ew", **pad)
 
         # Contraseña
         ttk.Label(frame, text="Contraseña:").grid(row=5, column=0, sticky="w", **pad)
-        self._pass_var = tk.StringVar()
+        self._pass_var = StringVar()
         ttk.Entry(frame, textvariable=self._pass_var, show="•", width=30).grid(row=5, column=1, sticky="ew", **pad)
 
         # Ignorar SSL
-        self._ssl_var = tk.BooleanVar(value=True)
+        self._ssl_var = BooleanVar(value=True)
         ttk.Checkbutton(
             frame, text="Ignorar certificado SSL",
             variable=self._ssl_var
@@ -154,7 +153,7 @@ class AddConnectionDialog(tk.Toplevel):
 
         self.destroy()
 
-class ScanConfigDialog(tk.Toplevel):
+class ScanConfigDialog(Toplevel):
     """Diálogo de configuración del escaneo masivo."""
 
     def __init__(self, parent, current_config: ScanConfig):
@@ -184,7 +183,7 @@ class ScanConfigDialog(tk.Toplevel):
         )
 
         # Paralelo / Secuencial
-        self._parallel_var = tk.BooleanVar(value=self._cfg.parallel)
+        self._parallel_var = BooleanVar(value=self._cfg.parallel)
         ttk.Radiobutton(
             frame, text="🔁 Secuencial (más estable)",
             variable=self._parallel_var, value=False
@@ -196,14 +195,14 @@ class ScanConfigDialog(tk.Toplevel):
 
         # Workers
         ttk.Label(frame, text="Workers paralelos:").grid(row=3, column=0, sticky="w", **pad)
-        self._workers_var = tk.IntVar(value=self._cfg.max_workers)
+        self._workers_var = IntVar(value=self._cfg.max_workers)
         ttk.Spinbox(frame, from_=1, to=10, textvariable=self._workers_var, width=6).grid(
             row=3, column=1, sticky="w", **pad
         )
 
         # Timeout
         ttk.Label(frame, text="Timeout (seg):").grid(row=4, column=0, sticky="w", **pad)
-        self._timeout_var = tk.IntVar(value=self._cfg.timeout)
+        self._timeout_var = IntVar(value=self._cfg.timeout)
         ttk.Spinbox(frame, from_=5, to=120, textvariable=self._timeout_var, width=6).grid(
             row=4, column=1, sticky="w", **pad
         )
@@ -214,10 +213,10 @@ class ScanConfigDialog(tk.Toplevel):
             row=6, column=0, columnspan=2, sticky="w"
         )
 
-        self._inc_vms_var  = tk.BooleanVar(value=self._cfg.include_vms)
-        self._inc_host_var = tk.BooleanVar(value=self._cfg.include_hosts)
-        self._inc_ds_var   = tk.BooleanVar(value=self._cfg.include_datastores)
-        self._inc_net_var  = tk.BooleanVar(value=self._cfg.include_networks)
+        self._inc_vms_var  = BooleanVar(value=self._cfg.include_vms)
+        self._inc_host_var = BooleanVar(value=self._cfg.include_hosts)
+        self._inc_ds_var   = BooleanVar(value=self._cfg.include_datastores)
+        self._inc_net_var  = BooleanVar(value=self._cfg.include_networks)
 
         ttk.Checkbutton(frame, text="Máquinas Virtuales", variable=self._inc_vms_var).grid(
             row=7, column=0, sticky="w", **pad)
@@ -230,7 +229,7 @@ class ScanConfigDialog(tk.Toplevel):
 
         ttk.Separator(frame).grid(row=11, column=0, columnspan=2, sticky="ew", pady=8)
 
-        self._partial_var = tk.BooleanVar(value=self._cfg.export_partial)
+        self._partial_var = BooleanVar(value=self._cfg.export_partial)
         ttk.Checkbutton(
             frame,
             text="Exportar aunque haya fuentes con error",
@@ -386,7 +385,7 @@ class MultiConnectionPanel(ttk.Frame):
         prog_frame = ttk.Frame(self)
         prog_frame.pack(fill="x", padx=5, pady=(0, 5))
 
-        self._progress_var = tk.DoubleVar(value=0)
+        self._progress_var = DoubleVar(value=0)
         self._progress_bar = ttk.Progressbar(
             prog_frame,
             variable=self._progress_var,
@@ -399,7 +398,7 @@ class MultiConnectionPanel(ttk.Frame):
         self._progress_label.pack(side="left", padx=5)
 
         # ── Contador resumen
-        self._summary_var = tk.StringVar(value="Sin datos")
+        self._summary_var = StringVar(value="Sin datos")
         ttk.Label(self, textvariable=self._summary_var, foreground="gray").pack(
             anchor="e", padx=10, pady=(0, 5)
         )
@@ -546,7 +545,7 @@ class MultiConnectionPanel(ttk.Frame):
                 ConnectionStatus.TESTING:  "testing",
             }.get(p.status, "pending")
 
-            iid = self._tree.insert(
+            self._tree.insert(
                 "",
                 "end",
                 iid=p.id,
