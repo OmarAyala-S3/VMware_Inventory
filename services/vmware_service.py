@@ -3,7 +3,7 @@ Servicio VMware - Conexion y extraccion via pyVmomi con PropertyCollector
 """
 import ssl
 import threading
-from typing import Optional, Callable, List
+from typing import Optional, Callable
 
 try:
     from pyVim.connect import SmartConnect, Disconnect
@@ -14,10 +14,8 @@ except ImportError:
 
 from models.vm_model import VMModel, HostModel, DatastoreModel, NetworkModel, NicInfo, DiskInfo
 
-
 class VMwareConnectionError(Exception):
     pass
-
 
 class VMwareService:
     def __init__(self, log_callback: Optional[Callable] = None):
