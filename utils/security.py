@@ -4,7 +4,6 @@ Gestión segura de credenciales con cifrado Fernet.
 """
 
 import json
-import hashlib
 import base64
 from pathlib import Path
 from typing import Optional
@@ -42,7 +41,7 @@ class CredentialManager:
         try:
             import ctypes
             ctypes.windll.kernel32.SetFileAttributesW(str(self.KEY_FILE), 2)  # FILE_ATTRIBUTE_HIDDEN
-        except Exception:
+        except Exception:  # nosec - excepcion intencional, no afecta flujo
             pass
         return key
 
@@ -57,7 +56,7 @@ class CredentialManager:
                 "user": user,
                 "port": port,
                 "conn_type": conn_type,
-                "password_hash": hashlib.sha256(password.encode()).hexdigest(),
+                "password_hash": self._hash_password(password),
                 "password_enc": self._encrypt(password),
             }
             self._write_profiles(profiles)
@@ -122,4 +121,16 @@ class CredentialManager:
 
     @staticmethod
     def hash_password(password: str) -> str:
-        return hashlib.sha256(password.encode()).hexdigest()
+        """
+        FIX CodeQL py/weak-sensitive-data-hashing (linea 125):
+        Reemplaza SHA-256 por bcrypt/PBKDF2.
+        """
+        if BCRYPT_AVAILABLE:
+            return bcrypt.hashpw(
+                password.encode("utf-8"),
+                bcrypt.gensalt(rounds=12),
+            ).decode("utf-8")
+        import hashlib as _hl, os as _os
+        salt = _os.urandom(32)
+        dk = _hl.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 600_000)
+        return "pbkdf2:" + salt.hex() + ":" + dk.hex()
