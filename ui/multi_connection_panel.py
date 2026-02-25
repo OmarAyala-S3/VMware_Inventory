@@ -4,7 +4,7 @@ Panel de gestión de múltiples conexiones VMware.
 Permite agregar, editar, eliminar y probar conexiones individuales.
 """
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox
 import threading
 from typing import Callable, Optional, List
 
@@ -12,7 +12,6 @@ from models.connection_profile import (
     ConnectionProfile, ConnectionType, ConnectionStatus, ScanConfig
 )
 from services.connection_manager import ConnectionManager, ScanProgress, ConsolidatedResult
-
 
 # ─────────────────────────────────────────────────────────
 # Colores de estado para la tabla
@@ -26,7 +25,6 @@ STATUS_COLORS = {
     ConnectionStatus.ERROR:    ("#FFEBEE", "#B71C1C"),   # rojo claro / rojo oscuro
     ConnectionStatus.SKIPPED:  ("#F5F5F5", "#757575"),   # gris
 }
-
 
 class AddConnectionDialog(tk.Toplevel):
     """Diálogo modal para agregar o editar un perfil de conexión."""
@@ -156,7 +154,6 @@ class AddConnectionDialog(tk.Toplevel):
 
         self.destroy()
 
-
 class ScanConfigDialog(tk.Toplevel):
     """Diálogo de configuración del escaneo masivo."""
 
@@ -257,7 +254,6 @@ class ScanConfigDialog(tk.Toplevel):
             export_partial     = self._partial_var.get(),
         )
         self.destroy()
-
 
 class MultiConnectionPanel(ttk.Frame):
     """
