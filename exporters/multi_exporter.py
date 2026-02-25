@@ -13,16 +13,14 @@ from typing import Dict, List, Optional
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import (
-    PatternFill, Font, Alignment, Border, Side, GradientFill
+    PatternFill, Font, Alignment, Border, Side
 )
 from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from services.connection_manager import ConsolidatedResult
 from models.connection_profile import ConnectionProfile
 
 logger = logging.getLogger(__name__)
-
 
 # ─────────────────────────────────────────────────────────
 # Paleta de colores
@@ -40,7 +38,6 @@ class Colors:
     LIGHT_GRAY     = "F2F2F2"
     SOURCE_TAB_OK  = "70AD47"   # Verde — tab exitosa
     SOURCE_TAB_ERR = "FF0000"   # Rojo — tab con error
-
 
 # ─────────────────────────────────────────────────────────
 # Mapeo de columnas
@@ -111,7 +108,6 @@ NETWORK_COLUMNS = [
     ("VMs Conectadas",      "vms_count"),
     ("Hosts",               "_hosts_str"),        # calculado en _net_to_row
 ]
-
 
 class MultiSourceExporter:
     """
